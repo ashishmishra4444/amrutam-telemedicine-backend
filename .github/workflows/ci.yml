@@ -12,6 +12,27 @@ jobs:
     name: Validate Backend
     runs-on: ubuntu-latest
 
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: amrutam_telemedicine_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d amrutam_telemedicine_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/amrutam_telemedicine_test?schema=public
+      TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/amrutam_telemedicine_test?schema=public
+      JWT_SECRET: ci-only-test-secret-not-for-production
+      JWT_EXPIRES_IN: 15m
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -28,11 +49,17 @@ jobs:
       - name: Generate Prisma Client
         run: npm run db:generate
 
+      - name: Apply database migrations
+        run: npm run db:migrate
+
       - name: TypeScript typecheck
         run: npm run typecheck
 
       - name: Run unit tests
         run: npm test
+
+      - name: Run PostgreSQL integration tests
+        run: npm run test:integration
 
       - name: Build application
         run: npm run build
