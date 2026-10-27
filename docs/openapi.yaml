@@ -1,0 +1,648 @@
+openapi: 3.1.0
+
+info:
+  title: Amrutam Telemedicine API
+  version: 1.0.0
+  description: |
+    REST API for the Amrutam telemedicine backend.
+    Supports authentication, doctor discovery, consultation booking,
+    prescriptions, payment records, and health checks.
+
+servers:
+  - url: http://localhost:3000
+    description: Local development server
+
+tags:
+  - name: Health
+    description: Application liveness and database readiness checks.
+  - name: Authentication
+    description: Patient registration, login, and authenticated user information.
+  - name: Doctors
+    description: Doctor search, profile discovery, and availability management.
+  - name: Consultations
+    description: Consultation booking, listing, and lifecycle management.
+  - name: Prescriptions
+    description: Prescription creation and access-controlled retrieval.
+  - name: Payments
+    description: Creation and retrieval of pending payment records.
+
+paths:
+  /health/live:
+    get:
+      operationId: getLiveness
+      tags: [Health]
+      summary: Check whether the application process is running
+      security: []
+      responses:
+        "200":
+          description: Application process is running.
+
+  /health/ready:
+    get:
+      operationId: getReadiness
+      tags: [Health]
+      summary: Check application and database readiness
+      security: []
+      responses:
+        "200":
+          description: Database is reachable.
+        "503":
+          description: Database is unavailable.
+
+  /api/v1/auth/register:
+    post:
+      operationId: registerPatient
+      tags: [Authentication]
+      summary: Register a patient account
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterRequest"
+      responses:
+        "201":
+          description: Account created successfully.
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "409":
+          description: Account conflicts with an existing resource.
+
+  /api/v1/auth/login:
+    post:
+      operationId: loginUser
+      tags: [Authentication]
+      summary: Authenticate a user
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Login successful.
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/auth/me:
+    get:
+      operationId: getCurrentUser
+      tags: [Authentication]
+      summary: Get the authenticated user's information
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Authenticated user information.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/doctors:
+    get:
+      operationId: searchDoctors
+      tags: [Doctors]
+      summary: Search and filter doctors
+      security: []
+      parameters:
+        - name: search
+          in: query
+          description: Search by doctor name.
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 120
+        - name: specialization
+          in: query
+          description: Filter by specialization.
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 120
+        - name: minFee
+          in: query
+          description: Minimum consultation fee.
+          schema:
+            type: number
+            minimum: 0
+            maximum: 1000000
+        - name: maxFee
+          in: query
+          description: Maximum consultation fee.
+          schema:
+            type: number
+            minimum: 0
+            maximum: 1000000
+        - name: minExperience
+          in: query
+          description: Minimum years of experience.
+          schema:
+            type: integer
+            minimum: 0
+            maximum: 100
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Matching doctors and pagination information.
+        "400":
+          $ref: "#/components/responses/ValidationError"
+
+  /api/v1/doctors/{doctorId}:
+    get:
+      operationId: getDoctorById
+      tags: [Doctors]
+      summary: Get a doctor profile
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/DoctorId"
+      responses:
+        "200":
+          description: Doctor profile.
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/doctors/{doctorId}/availability:
+    get:
+      operationId: listDoctorAvailability
+      tags: [Doctors]
+      summary: List a doctor's available slots
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/DoctorId"
+        - name: from
+          in: query
+          description: Optional start of the time range; ISO datetime with timezone.
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          description: Optional end of the time range; ISO datetime with timezone.
+          schema:
+            type: string
+            format: date-time
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Available slots and pagination information.
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/doctors/availability:
+    post:
+      operationId: createDoctorAvailability
+      tags: [Doctors]
+      summary: Create doctor availability
+      description: Requires the DOCTOR role.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAvailabilityRequest"
+      responses:
+        "201":
+          description: Availability created successfully.
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          description: Availability overlaps an existing slot.
+
+  /api/v1/consultations:
+    post:
+      operationId: bookConsultation
+      tags: [Consultations]
+      summary: Book a consultation
+      description: |
+        Requires the PATIENT role.
+
+        Idempotency-Key must contain 1-255 printable ASCII characters.
+        Repeating the same key with the same request replays the original
+        result. Reusing the key with a different request is rejected.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          description: Client-generated key used to make booking retries safe.
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 255
+            pattern: '^[\x21-\x7E]+$'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateConsultationRequest"
+      responses:
+        "201":
+          description: Consultation booked or original booking result replayed.
+          headers:
+            Idempotency-Replayed:
+              description: Whether a stored result was replayed.
+              schema:
+                type: string
+                enum: ["true", "false"]
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          description: Slot unavailable or idempotency key conflict.
+
+    get:
+      operationId: listConsultations
+      tags: [Consultations]
+      summary: List consultations accessible to the user
+      description: Requires the PATIENT or DOCTOR role.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Consultations and pagination information.
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/consultations/{consultationId}/status:
+    patch:
+      operationId: updateConsultationStatus
+      tags: [Consultations]
+      summary: Change consultation status
+      description: |
+        Requires the PATIENT or DOCTOR role. The service enforces
+        allowed status transitions, ownership, and role permissions.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: consultationId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status:
+                  type: string
+                  enum: [CONFIRMED, IN_PROGRESS, COMPLETED, CANCELLED]
+      responses:
+        "200":
+          description: Consultation status updated successfully.
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: Invalid or conflicting status transition.
+
+  /api/v1/prescriptions:
+    post:
+      operationId: createPrescription
+      tags: [Prescriptions]
+      summary: Create a prescription
+      description: |
+        Requires the DOCTOR role. The assigned doctor can create
+        a prescription for a completed consultation.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePrescriptionRequest"
+      responses:
+        "201":
+          description: Prescription created successfully.
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: Prescription already exists or consultation is not eligible.
+
+    get:
+      operationId: listPrescriptions
+      tags: [Prescriptions]
+      summary: List prescriptions accessible to the user
+      description: Requires the PATIENT or DOCTOR role.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Prescriptions and pagination information.
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/prescriptions/{prescriptionId}:
+    get:
+      operationId: getPrescriptionById
+      tags: [Prescriptions]
+      summary: Retrieve a prescription
+      description: Requires the PATIENT or DOCTOR role and resource ownership.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: prescriptionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Prescription details.
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/payments:
+    post:
+      operationId: createPaymentRecord
+      tags: [Payments]
+      summary: Create a pending payment record
+      description: |
+        Requires the PATIENT role. The endpoint creates a pending
+        payment record using the consultation fee. It does not
+        process a payment through a gateway.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [consultationId]
+              properties:
+                consultationId:
+                  type: string
+                  format: uuid
+      responses:
+        "201":
+          description: Pending payment record created.
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: A pending payment already exists or payment is not allowed.
+
+    get:
+      operationId: listPaymentRecords
+      tags: [Payments]
+      summary: List accessible payment records
+      description: Requires the PATIENT or DOCTOR role.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Payment records and pagination information.
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/payments/{paymentId}:
+    get:
+      operationId: getPaymentById
+      tags: [Payments]
+      summary: Retrieve a payment record
+      description: Requires the PATIENT or DOCTOR role and resource access.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: paymentId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Payment record details.
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    Page:
+      name: page
+      in: query
+      description: Page number, starting at 1.
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+
+    Limit:
+      name: limit
+      in: query
+      description: Maximum number of records per page.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 50
+        default: 20
+
+    DoctorId:
+      name: doctorId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+  schemas:
+    RegisterRequest:
+      type: object
+      required: [email, password, fullName]
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 255
+          description: The application normalizes email addresses to lowercase.
+        password:
+          type: string
+          minLength: 12
+          maxLength: 72
+        fullName:
+          type: string
+          minLength: 2
+          maxLength: 150
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 255
+        password:
+          type: string
+          minLength: 1
+          maxLength: 72
+
+    CreateAvailabilityRequest:
+      type: object
+      required: [startsAt, endsAt]
+      properties:
+        startsAt:
+          type: string
+          format: date-time
+          description: Must be in the future and include a timezone.
+        endsAt:
+          type: string
+          format: date-time
+          description: Must be later than startsAt and include a timezone.
+
+    CreateConsultationRequest:
+      type: object
+      required: [slotId]
+      properties:
+        slotId:
+          type: string
+          format: uuid
+        reason:
+          type: string
+          maxLength: 1000
+
+    CreatePrescriptionRequest:
+      type: object
+      required: [consultationId]
+      properties:
+        consultationId:
+          type: string
+          format: uuid
+        notes:
+          type: string
+          minLength: 1
+          maxLength: 10000
+
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+            details:
+              type: array
+              items:
+                type: object
+                properties:
+                  path:
+                    type: string
+                  message:
+                    type: string
+
+  responses:
+    ValidationError:
+      description: Request validation failed.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+
+    Unauthorized:
+      description: Authentication is required or the token is invalid.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+
+    Forbidden:
+      description: The authenticated user lacks permission.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+
+    NotFound:
+      description: Requested resource was not found.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
