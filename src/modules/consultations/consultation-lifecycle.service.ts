@@ -11,7 +11,7 @@ type ListOptions = {
 
 const transitions: Partial<Record<ConsultationStatus, ConsultationStatus[]>> = {
   BOOKED: ["CONFIRMED", "CANCELLED"],
-  CONFIRMED: ["IN_PROGRESS", "CANCELLED"],
+  CONFIRMED: ["IN_PROGRESS", "CANCELLED", "NO_SHOW"],
   IN_PROGRESS: ["COMPLETED"],
 };
 

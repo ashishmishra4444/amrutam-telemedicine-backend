@@ -181,6 +181,41 @@ describe("Consultation lifecycle integration", () => {
     });
   });
 
+  it("allows a doctor to mark a confirmed consultation as no-show", async () => {
+    await prisma.consultation.update({
+      where: { id: consultationId },
+      data: { status: "CONFIRMED" },
+    });
+
+    const result = await updateConsultationStatus(
+      consultationId,
+      doctorUserId,
+      "DOCTOR",
+      "NO_SHOW",
+    );
+
+    expect(result.status).toBe("NO_SHOW");
+  });
+
+  it("rejects a doctor trying to cancel a confirmed consultation", async () => {
+    await prisma.consultation.update({
+      where: { id: consultationId },
+      data: { status: "CONFIRMED" },
+    });
+
+    await expect(
+      updateConsultationStatus(
+        consultationId,
+        doctorUserId,
+        "DOCTOR",
+        "CANCELLED",
+      ),
+    ).rejects.toMatchObject({
+      statusCode: 403,
+      code: "FORBIDDEN",
+    });
+  });
+
   it("rejects a patient trying to confirm a consultation", async () => {
     await expect(
       updateConsultationStatus(

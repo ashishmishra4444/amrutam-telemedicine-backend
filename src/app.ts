@@ -13,10 +13,28 @@ import paymentRouter from "./modules/payments/payment.routes";
 
 const app = express();
 
+const allowedOrigins = (process.env.CORS_ORIGINS ?? "http://localhost:5173")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
 app.disable("x-powered-by");
 
 app.use(helmet());
-app.use(cors());
+app.use(
+  cors({
+    origin(origin, callback) {
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+        return;
+      }
+
+      callback(new Error("Origin not allowed by CORS"));
+    },
+    methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization", "Idempotency-Key", "X-Request-Id"],
+  }),
+);
 app.use(express.json({ limit: "100kb" }));
 app.use(httpLogger);
 
@@ -49,15 +67,11 @@ app.get("/health/ready", async (_req, res) => {
   }
 });
 
-app.get(
-  "/api/v1/auth/me",
-  authenticate,
-  (req, res) => {
-    res.status(200).json({
-      data: (req as import("./common/middleware/authenticate").AuthenticatedRequest).user,
-    });
-  },
-);
+app.get("/api/v1/auth/me", authenticate, (req, res) => {
+  res.status(200).json({
+    data: (req as import("./common/middleware/authenticate").AuthenticatedRequest).user,
+  });
+});
 
 app.use((_req, res) => {
   res.status(404).json({
@@ -71,3 +85,4 @@ app.use((_req, res) => {
 app.use(errorHandler);
 
 export default app;
+

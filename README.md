@@ -100,7 +100,7 @@ For local development:
 npm run db:migrate
 ```
 
-This runs `prisma migrate dev`.
+This runs `prisma migrate deploy` and applies existing database migrations. It does not create new development migrations.
 
 To seed the database, if the configured seed data is required:
 
@@ -129,7 +129,7 @@ The default configured port is `3000`. Check your environment configuration if y
 | `npm run test:watch` | Run unit tests in watch mode |
 | `npm run test:integration` | Run PostgreSQL integration tests |
 | `npm run db:generate` | Generate the Prisma client |
-| `npm run db:migrate` | Run development migrations |
+| `npm run db:migrate` | Apply existing database migrations |
 | `npm run db:seed` | Run the configured database seed |
 
 ## API Overview
@@ -200,11 +200,63 @@ Integration tests require a correctly configured `TEST_DATABASE_URL` pointing to
 - Avoid logging passwords, tokens, prescription notes, or other sensitive information.
 - Keep dependencies updated and run security checks as part of CI.
 
+## Docker Setup
+
+Docker Desktop and Docker Compose are required for the containerized setup.
+
+1. Create `.env.docker` in the project root with these variables:
+
+   - `POSTGRES_PASSWORD` — a strong, unique database password.
+   - `JWT_SECRET` — a long, randomly generated secret.
+   - `JWT_EXPIRES_IN=15m`
+   - `CORS_ORIGINS=http://localhost:5173`
+
+2. Start the application:
+
+   ```powershell
+   docker compose --env-file .env.docker up -d
+   ```
+
+3. Check container status:
+
+   ```powershell
+   docker compose --env-file .env.docker ps
+   ```
+
+4. Verify API health:
+
+   - `http://localhost:3000/health/live`
+   - `http://localhost:3000/health/ready`
+
+5. View API logs:
+
+   ```powershell
+   docker compose --env-file .env.docker logs --tail 100 api
+   ```
+
+To stop the containers:
+
+```powershell
+docker compose --env-file .env.docker down
+```
+
+The database volume is retained when containers are stopped. Do not use `docker compose down -v` unless you intentionally want to delete the Docker database volume.
+
+Never commit `.env.docker` or real credentials.
+
+## API Documentation
+
+The OpenAPI specification is available at `docs/openapi.yaml`. Architecture and security documentation are available at `docs/architecture.md` and `docs/security.md`.
+
+## CI
+
+The GitHub Actions workflow is located at `.github/workflows/ci.yml`. It runs automated checks, tests, and the build.
+
 ## Current Scope and Future Work
 
-Potential extensions include payment gateway integration, asynchronous notification jobs, administrator analytics, a formal OpenAPI specification, automated CI/CD, deployment infrastructure, and production monitoring.
+The current payment module creates pending payment records; it does not integrate with a payment gateway.
 
-These should be considered separate implementation tasks unless they are already configured in the repository.
+Further improvements may include payment gateway integration, asynchronous notifications, expanded administrator analytics, production deployment automation, and enhanced monitoring and alerting.
 
 ## License
 
