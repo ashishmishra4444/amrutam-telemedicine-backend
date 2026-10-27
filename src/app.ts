@@ -6,6 +6,8 @@ import { prisma } from "./config/database";
 import { errorHandler } from "./common/middleware/error-handler";
 import authRouter from "./modules/auth/auth.routes";
 import { authenticate } from "./common/middleware/authenticate";
+import doctorRouter from "./modules/doctors/doctor.routes";
+import consultationRouter from "./modules/consultations/consultation.routes";
 
 const app = express();
 
@@ -17,6 +19,8 @@ app.use(express.json({ limit: "100kb" }));
 app.use(httpLogger);
 
 app.use("/api/v1/auth", authRouter);
+app.use("/api/v1/doctors", doctorRouter);
+app.use("/api/v1/consultations", consultationRouter);
 
 app.get("/health/live", (_req, res) => {
   res.status(200).json({
