@@ -7,6 +7,7 @@ import {
   paymentListQuerySchema,
 } from "./payment.schema";
 import { createPayment, getPayment, listPayments } from "./payment.service";
+import { getRequestId } from "../../observability/request-context";
 
 export async function createPaymentController(
   req: Request,
@@ -21,7 +22,11 @@ export async function createPaymentController(
     }
 
     const body = createPaymentSchema.parse(req.body);
-    const payment = await createPayment(body.consultationId, user.id);
+    const payment = await createPayment(
+      body.consultationId,
+      user.id,
+      getRequestId(req),
+    );
 
     res.status(201).json({ data: payment });
   } catch (error) {

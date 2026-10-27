@@ -16,6 +16,9 @@ const { prismaMock } = vi.hoisted(() => ({
     consultation: {
       create: vi.fn(),
     },
+    auditLog: {
+      create: vi.fn(),
+    },
   },
 }));
 
@@ -83,6 +86,8 @@ describe("createConsultation", () => {
     prismaMock.availabilitySlot.findUnique.mockResolvedValue(slot);
     prismaMock.availabilitySlot.updateMany.mockResolvedValue({ count: 1 });
     prismaMock.consultation.create.mockResolvedValue(consultation);
+
+    prismaMock.auditLog.create.mockResolvedValue({});
   });
 
   it("creates a consultation and stores the idempotent response", async () => {
@@ -98,6 +103,22 @@ describe("createConsultation", () => {
     expect(prismaMock.availabilitySlot.updateMany).toHaveBeenCalled();
     expect(prismaMock.consultation.create).toHaveBeenCalled();
     expect(prismaMock.idempotencyKey.update).toHaveBeenCalled();
+
+    expect(prismaMock.auditLog.create).toHaveBeenCalledWith({
+      data: {
+        actorId: patientId,
+        action: "CONSULTATION_BOOKED",
+        resourceType: "CONSULTATION",
+        resourceId: consultation.id,
+        requestId: null,
+        outcome: "SUCCESS",
+        metadata: {
+          status: "BOOKED",
+          doctorId,
+          slotId,
+        },
+      },
+    });
   });
 
   it("replays the stored response for the same idempotency key and request", async () => {

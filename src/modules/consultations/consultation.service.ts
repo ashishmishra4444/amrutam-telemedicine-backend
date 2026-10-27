@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "../../config/database";
 import { AppError } from "../../common/errors/app-error";
 import type { CreateConsultationInput } from "./consultation.schema";
+import { writeAuditEvent } from "../../observability/audit.service";
 
 type BookingBody = {
   message: string;
@@ -40,6 +41,7 @@ export async function createConsultation(
   patientId: string,
   input: CreateConsultationInput,
   idempotencyKey: string,
+  requestId?: string,
 ): Promise<BookingResult> {
   const requestHash = hashRequest(input);
 
@@ -174,6 +176,22 @@ export async function createConsultation(
           createdAt: true,
         },
       });
+
+      await writeAuditEvent(
+        {
+          actorId: patientId,
+          action: "CONSULTATION_BOOKED",
+          resourceType: "CONSULTATION",
+          resourceId: consultation.id,
+          requestId,
+          metadata: {
+            status: consultation.status,
+            doctorId: consultation.doctorId,
+            slotId: consultation.slotId,
+          },
+        },
+        tx,
+      );
 
       const body: BookingBody = {
         message: "Consultation booked successfully.",

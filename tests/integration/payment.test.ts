@@ -100,6 +100,11 @@ async function cleanupRecords() {
   if (createdUserIds.length === 0) return;
 
   await prisma.$transaction(async (tx) => {
+    await tx.auditLog.deleteMany({
+      where: {
+        actorId: { in: createdUserIds },
+      },
+    });
     await tx.payment.deleteMany({
       where: {
         consultation: {
@@ -156,6 +161,27 @@ describe("Payment integration", () => {
     expect(Number(payment.amount)).toBe(500);
     expect(payment.currency).toBe("INR");
     expect(payment.status).toBe("PENDING");
+
+    const auditLog = await prisma.auditLog.findFirst({
+      where: {
+        actorId: patientId,
+        action: "PAYMENT_INITIATED",
+        resourceType: "PAYMENT",
+        resourceId: payment.id,
+      },
+    });
+
+    expect(auditLog).not.toBeNull();
+    expect(auditLog?.metadata).toEqual({
+      consultationId,
+      status: "PENDING",
+      currency: "INR",
+    });
+
+    const metadata = auditLog?.metadata as Record<string, unknown>;
+
+    expect(metadata).not.toHaveProperty("amount");
+    expect(metadata).not.toHaveProperty("providerReference");
   });
 
   it("prevents another pending payment for the same consultation", async () => {

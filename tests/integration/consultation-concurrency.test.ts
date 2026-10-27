@@ -83,6 +83,12 @@ async function cleanupRecords() {
       where: { userId: { in: createdUserIds } },
     });
 
+    await tx.auditLog.deleteMany({
+      where: {
+        actorId: { in: createdUserIds },
+      },
+    });
+
     if (slotId!) {
       await tx.consultation.deleteMany({ where: { slotId } });
       await tx.availabilitySlot.deleteMany({ where: { id: slotId } });
@@ -165,5 +171,20 @@ describe("PostgreSQL consultation concurrency", () => {
     });
 
     expect(consultationCount).toBe(1);
+    const auditLogs = await prisma.auditLog.findMany({
+      where: {
+        actorId: patientOneId,
+        action: "CONSULTATION_BOOKED",
+        resourceType: "CONSULTATION",
+        resourceId: results[0].body.data.id,
+      },
+    });
+
+    expect(auditLogs).toHaveLength(1);
+    expect(auditLogs[0].metadata).toEqual({
+      status: "BOOKED",
+      doctorId,
+      slotId,
+    });
   });
 });

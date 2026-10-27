@@ -1,6 +1,7 @@
 import { Prisma, type UserRole } from "@prisma/client";
 import { prisma } from "../../config/database";
 import { AppError } from "../../common/errors/app-error";
+import { writeAuditEvent } from "../../observability/audit.service";
 
 type ListOptions = {
   page: number;
@@ -54,7 +55,11 @@ const paymentSelect = {
   },
 } as const;
 
-export async function createPayment(consultationId: string, userId: string) {
+export async function createPayment(
+  consultationId: string,
+  userId: string,
+  requestId?: string,
+) {
   try {
     return await prisma.$transaction(async (tx) => {
       const consultation = await tx.consultation.findFirst({
@@ -108,7 +113,7 @@ export async function createPayment(consultationId: string, userId: string) {
         );
       }
 
-      return await tx.payment.create({
+      const payment = await tx.payment.create({
         data: {
           consultationId,
           amount: consultation.doctor.consultationFee,
@@ -117,6 +122,24 @@ export async function createPayment(consultationId: string, userId: string) {
         },
         select: paymentSelect,
       });
+
+      await writeAuditEvent(
+        {
+          actorId: userId,
+          action: "PAYMENT_INITIATED",
+          resourceType: "PAYMENT",
+          resourceId: payment.id,
+          requestId,
+          metadata: {
+            consultationId: payment.consultationId,
+            status: payment.status,
+            currency: payment.currency,
+          },
+        },
+        tx,
+      );
+
+      return payment;
     });
   } catch (error) {
     if (

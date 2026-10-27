@@ -11,6 +11,7 @@ import {
   getPrescriptionById,
   listPrescriptions,
 } from "./prescription.service";
+import { getRequestId } from "../../observability/request-context";
 
 export async function createPrescriptionController(
   req: AuthenticatedRequest,
@@ -23,7 +24,11 @@ export async function createPrescriptionController(
     }
 
     const input = createPrescriptionSchema.parse(req.body);
-    const prescription = await createPrescription(req.user.id, input);
+    const prescription = await createPrescription(
+      req.user.id,
+      input,
+      getRequestId(req),
+    );
 
     res.status(201).json({
       message: "Prescription created successfully.",

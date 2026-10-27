@@ -10,6 +10,7 @@ import {
   listConsultations,
   updateConsultationStatus,
 } from "./consultation-lifecycle.service";
+import { getRequestId } from "../../observability/request-context";
 
 export async function listConsultationsController(
   req: AuthenticatedRequest,
@@ -50,6 +51,7 @@ export async function updateConsultationStatusController(
       req.user.id,
       req.user.role,
       status,
+      getRequestId(req),
     );
 
     res.status(200).json({

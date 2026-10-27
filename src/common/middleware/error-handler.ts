@@ -1,9 +1,10 @@
 import type { ErrorRequestHandler } from "express";
 import { ZodError } from "zod";
 import { AppError } from "../errors/app-error";
+import { logger } from "../../observability/logger";
 
-export const errorHandler: ErrorRequestHandler = (error, _req, res, _next) => {
-  if (error instanceof ZodError) {
+export const errorHandler: ErrorRequestHandler = (error, req, res, _next) => {
+  if (ZodError && error instanceof ZodError) {
     res.status(400).json({
       error: {
         code: "VALIDATION_ERROR",
@@ -27,7 +28,13 @@ export const errorHandler: ErrorRequestHandler = (error, _req, res, _next) => {
     return;
   }
 
-  console.error("Unhandled application error", error);
+  logger.error(
+    {
+      requestId: req.id,
+      errorName: error instanceof Error ? error.name : "UnknownError",
+    },
+    "Unhandled application error",
+  );
 
   res.status(500).json({
     error: {

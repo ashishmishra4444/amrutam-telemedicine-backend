@@ -3,6 +3,7 @@ import type { UserRole } from "@prisma/client";
 import { prisma } from "../../config/database";
 import { AppError } from "../../common/errors/app-error";
 import type { CreatePrescriptionInput } from "./prescription.schema";
+import { writeAuditEvent } from "../../observability/audit.service";
 
 type ListOptions = {
   page: number;
@@ -12,6 +13,7 @@ type ListOptions = {
 export async function createPrescription(
   userId: string,
   input: CreatePrescriptionInput,
+  requestId?: string,
 ) {
   try {
     return await prisma.$transaction(async (tx) => {
@@ -70,7 +72,7 @@ export async function createPrescription(
         );
       }
 
-      return await tx.prescription.create({
+      const prescription = await tx.prescription.create({
         data: {
           consultationId: consultation.id,
           doctorId: consultation.doctorId,
@@ -87,6 +89,22 @@ export async function createPrescription(
           updatedAt: true,
         },
       });
+
+      await writeAuditEvent(
+        {
+          actorId: userId,
+          action: "PRESCRIPTION_CREATED",
+          resourceType: "PRESCRIPTION",
+          resourceId: prescription.id,
+          requestId,
+          metadata: {
+            consultationId: prescription.consultationId,
+          },
+        },
+        tx,
+      );
+
+      return prescription;
     });
   } catch (error) {
     if (

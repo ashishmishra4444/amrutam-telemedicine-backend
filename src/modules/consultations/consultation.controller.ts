@@ -3,6 +3,7 @@ import type { AuthenticatedRequest } from "../../common/middleware/authenticate"
 import { AppError } from "../../common/errors/app-error";
 import { createConsultationSchema } from "./consultation.schema";
 import { createConsultation } from "./consultation.service";
+import { getRequestId } from "../../observability/request-context";
 
 export async function createConsultationController(
   req: AuthenticatedRequest,
@@ -30,7 +31,12 @@ export async function createConsultationController(
 
     const input = createConsultationSchema.parse(req.body);
 
-    const result = await createConsultation(req.user.id, input, idempotencyKey);
+    const result = await createConsultation(
+      req.user.id,
+      input,
+      idempotencyKey,
+      getRequestId(req),
+    );
 
     res.setHeader("Idempotency-Replayed", String(result.replayed));
     res.status(result.statusCode).json(result.body);

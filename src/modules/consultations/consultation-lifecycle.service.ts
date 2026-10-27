@@ -2,6 +2,7 @@ import { ConsultationStatus } from "@prisma/client";
 import type { UserRole } from "@prisma/client";
 import { prisma } from "../../config/database";
 import { AppError } from "../../common/errors/app-error";
+import { writeAuditEvent } from "../../observability/audit.service";
 
 type ListOptions = {
   page: number;
@@ -96,6 +97,7 @@ export async function updateConsultationStatus(
   userId: string,
   role: UserRole,
   nextStatus: ConsultationStatus,
+  requestId?: string,
 ) {
   const allowedRoles: Record<ConsultationStatus, UserRole[]> = {
     BOOKED: [],
@@ -160,6 +162,21 @@ export async function updateConsultationStatus(
         "The consultation status changed concurrently. Refresh and try again.",
       );
     }
+
+    await writeAuditEvent(
+      {
+        actorId: userId,
+        action: "CONSULTATION_STATUS_CHANGED",
+        resourceType: "CONSULTATION",
+        resourceId: consultation.id,
+        requestId,
+        metadata: {
+          previousStatus: consultation.status,
+          newStatus: nextStatus,
+        },
+      },
+      tx,
+    );
 
     if (nextStatus === "CANCELLED") {
       await tx.availabilitySlot.updateMany({

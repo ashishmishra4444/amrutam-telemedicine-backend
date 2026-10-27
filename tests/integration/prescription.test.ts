@@ -114,6 +114,11 @@ async function cleanupRecords() {
   if (createdUserIds.length === 0) return;
 
   await prisma.$transaction(async (tx) => {
+    await tx.auditLog.deleteMany({
+      where: {
+        actorId: { in: createdUserIds },
+      },
+    });
     await tx.prescription.deleteMany({
       where: {
         OR: [
@@ -171,6 +176,27 @@ describe("Prescription integration", () => {
     expect(prescription.doctorId).toBe(doctorId);
     expect(prescription.patientId).toBe(patientId);
     expect(prescription.notes).toBe("Take medication as directed.");
+
+    const auditLog = await prisma.auditLog.findFirst({
+      where: {
+        actorId: doctorUserId,
+        action: "PRESCRIPTION_CREATED",
+        resourceType: "PRESCRIPTION",
+        resourceId: prescription.id,
+      },
+    });
+
+    expect(auditLog).not.toBeNull();
+    expect(auditLog?.metadata).toEqual({
+      consultationId,
+    });
+
+    const metadata = auditLog?.metadata as Record<string, unknown>;
+
+    expect(metadata).not.toHaveProperty("notes");
+    expect(JSON.stringify(metadata)).not.toContain(
+      "Take medication as directed.",
+    );
   });
 
   it("rejects a prescription when the consultation is not completed", async () => {

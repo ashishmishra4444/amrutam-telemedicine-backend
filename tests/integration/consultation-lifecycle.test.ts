@@ -105,6 +105,12 @@ async function cleanupRecords() {
       where: { userId: { in: createdUserIds } },
     });
 
+    await tx.auditLog.deleteMany({
+      where: {
+        actorId: { in: createdUserIds },
+      },
+    });
+
     await tx.consultation.deleteMany({
       where: {
         OR: [{ patientId: { in: createdUserIds } }, { doctorId }],
@@ -156,6 +162,23 @@ describe("Consultation lifecycle integration", () => {
     });
 
     expect(slot.status).toBe("AVAILABLE");
+
+    const auditLog = await prisma.auditLog.findFirst({
+      where: {
+        actorId: patientUserId,
+        action: "CONSULTATION_STATUS_CHANGED",
+        resourceType: "CONSULTATION",
+        resourceId: consultationId,
+      },
+      orderBy: { createdAt: "desc" },
+    });
+
+    expect(auditLog).not.toBeNull();
+    expect(auditLog?.requestId).toBeNull();
+    expect(auditLog?.metadata).toEqual({
+      previousStatus: "BOOKED",
+      newStatus: "CANCELLED",
+    });
   });
 
   it("rejects a patient trying to confirm a consultation", async () => {
