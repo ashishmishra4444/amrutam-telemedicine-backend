@@ -299,6 +299,8 @@ paths:
       description: |
         Requires the PATIENT or DOCTOR role. The service enforces
         allowed status transitions, ownership, and role permissions.
+        NO_SHOW is supported when a doctor marks a confirmed consultation
+        as a no-show.
       security:
         - bearerAuth: []
       parameters:
@@ -318,7 +320,15 @@ paths:
               properties:
                 status:
                   type: string
-                  enum: [CONFIRMED, IN_PROGRESS, COMPLETED, CANCELLED]
+                  description: >
+                    Requested consultation status. Valid transitions depend
+                    on the current status, authenticated role, and resource ownership.
+                  enum:
+                    - CONFIRMED
+                    - IN_PROGRESS
+                    - COMPLETED
+                    - CANCELLED
+                    - NO_SHOW
       responses:
         "200":
           description: Consultation status updated successfully.

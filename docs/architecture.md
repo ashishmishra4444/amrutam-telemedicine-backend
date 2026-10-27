@@ -4,37 +4,45 @@
 
 The Amrutam Telemedicine Backend provides REST APIs for authentication, doctor discovery, availability management, consultation booking, consultation lifecycle management, prescriptions, payment records, and audit logging.
 
-The current implementation uses Node.js, TypeScript, Express, PostgreSQL, and Prisma ORM. It follows a modular monolith architecture, separating business capabilities into modules while deploying the API as a single application.
+The application uses **Node.js, TypeScript, Express, PostgreSQL, and Prisma ORM**. It follows a **modular monolith architecture**: business capabilities are separated into modules while the API is deployed as a single application. PostgreSQL is the source of truth for persistent business data and enforces important integrity and concurrency constraints.
 
-The design prioritizes secure resource access, reliable booking, transactional consistency, input validation, and maintainability.
+The design prioritizes secure access, transactional consistency, reliable booking, idempotent writes, maintainability, and a path toward future horizontal scaling.
 
-### Architecture goals
+### Architecture objectives
 
-- Support growth toward 100,000 daily consultations.
-- Target p95 read latency below 200 ms and write latency below 500 ms.
-- Design for a 99.95% availability objective.
-- Enforce authentication, role-based authorization, and ownership checks.
-- Provide structured logs, audit events, health checks, and automated tests.
+The system is designed with the following assignment targets:
 
-These are design targets, not measured production guarantees.
+- **Scale:** Support growth toward 100,000 consultations per day.
+- **Read performance:** Target p95 read latency below 200 ms.
+- **Write performance:** Target p95 write latency below 500 ms.
+- **Availability:** Target 99.95% service availability.
+- **Security:** Authentication, role-based authorization, ownership checks, input validation, and auditability.
+- **Reliability:** Database transactions, idempotency, concurrency constraints, automated tests, and health checks.
+- **Operability:** Structured logging, automated CI, containerized deployment, and documented recovery procedures.
+
+These are architectural objectives, not measured production guarantees. Meeting them requires representative load testing, production monitoring, capacity planning, and operational validation.
 
 ## 2. High-Level Architecture
 
 ```mermaid
 flowchart TB
-    Client[Web or Mobile Client]
-    API[Express REST API]
-    Auth[Authentication and RBAC]
-    Doctors[Doctor Discovery and Availability]
-    Consultations[Consultation Booking and Lifecycle]
-    Prescriptions[Prescription Management]
-    Payments[Payment Records]
-    Audit[Audit Logging]
-    DB[(PostgreSQL)]
-    Logs[Structured Application Logs]
-    Metrics[Metrics and Monitoring - Planned]
-    Jobs[Background Workers - Planned]
-    Cache[Redis Cache - Optional Future Component]
+    Client["Web or Mobile Client"]
+    API["Express REST API"]
+    Auth["Authentication and Authorization"]
+    Doctors["Doctor Discovery and Availability"]
+    Consultations["Consultation Booking and Lifecycle"]
+    Prescriptions["Prescription Management"]
+    Payments["Payment Records"]
+    Audit["Audit Events"]
+    DB[("PostgreSQL")]
+    Logs["Structured Application Logs"]
+    Health["Liveness and Readiness Checks"]
+    CI["GitHub Actions CI"]
+    Docker["Docker and Docker Compose"]
+    Cache["Redis Cache - Future"]
+    Jobs["Background Workers - Future"]
+    Metrics["Metrics, Dashboards and Tracing - Future"]
+    Gateway["Payment Gateway - Future"]
 
     Client --> API
     API --> Auth
@@ -42,255 +50,482 @@ flowchart TB
     API --> Consultations
     API --> Prescriptions
     API --> Payments
+
     Auth --> DB
     Doctors --> DB
     Consultations --> DB
     Prescriptions --> DB
     Payments --> DB
+
     Consultations --> Audit
     Prescriptions --> Audit
     Payments --> Audit
+    Audit --> DB
+
     API --> Logs
-    API -. future .-> Metrics
-    API -. future .-> Cache
-    DB -. future .-> Jobs
+    API --> Health
+    CI --> Docker
+    Docker --> API
+    Docker --> DB
+
+    API -. "Future integration" .-> Cache
+    DB -. "Future asynchronous processing" .-> Jobs
+    API -. "Future observability" .-> Metrics
+    Payments -. "Future integration" .-> Gateway
 ```
 
-The current implementation includes the REST API, PostgreSQL persistence, authentication, core business modules, structured logging, audit events, and health checks. Redis, background workers, and metrics infrastructure are proposed extensions rather than existing deployed components.
+### Architecture style
+
+The modular monolith is appropriate for the current assignment because it keeps deployment and development manageable while maintaining separation between business capabilities. Transactions can cover related database changes without requiring distributed transactions across multiple services.
+
+Business modules should communicate through clear service interfaces rather than duplicating business rules. If future scale or independent deployment requirements justify a change, selected modules can be extracted into separate services.
 
 ### Component responsibilities
 
-- **Authentication:** Registration, login, token verification, and authenticated user information.
-- **Doctor discovery:** Search, filtering, profile retrieval, and availability queries.
-- **Consultations:** Booking, idempotency, ownership checks, and lifecycle transitions.
-- **Prescriptions:** Creation for eligible completed consultations and access-controlled retrieval.
-- **Payments:** Creation and retrieval of pending payment records. Payment gateway processing is not implemented.
-- **Audit logging:** Records important business actions with relevant metadata.
-- **PostgreSQL:** Persistent storage and enforcement of relational constraints.
+| Component        | Responsibility                                                                                 |
+| ---------------- | ---------------------------------------------------------------------------------------------- |
+| REST API         | Exposes versioned HTTP endpoints and coordinates requests.                                     |
+| Authentication   | Handles registration, login, token verification, and authenticated-user access.                |
+| Authorization    | Enforces role-aware access and resource ownership checks in protected workflows.               |
+| Doctor discovery | Supports doctor profile retrieval, search/filtering, and availability operations.              |
+| Consultations    | Handles booking, idempotency, consultation state transitions, and access control.              |
+| Prescriptions    | Supports prescription creation for eligible consultations and protected retrieval.             |
+| Payments         | Creates and retrieves pending payment records. External payment processing is not implemented. |
+| Audit logging    | Records important business actions and associated metadata.                                    |
+| PostgreSQL       | Persists business data and enforces relational integrity and concurrency constraints.          |
+| Docker Compose   | Defines the local containerized API and database environment.                                  |
+| GitHub Actions   | Runs automated validation and build checks.                                                    |
 
-## 3. Booking Flow and Concurrency
+### Current implementation boundary
 
-### Booking sequence
+The implemented application includes the REST API, PostgreSQL persistence through Prisma, authentication and role-aware authorization, core consultation and related workflows, idempotency and database-level concurrency controls, structured logging, audit events, health endpoints, Docker configuration, and automated CI checks.
+
+Redis, a background job queue, payment-gateway processing, production metrics exporters, dashboards, alerting infrastructure, and distributed tracing are not currently implemented. They are future extensions rather than dependencies of the current core workflows.
+
+## 3. Core Workflows and Data Flow
+
+### Authentication and authorization
+
+1. A client sends registration or login details to the API.
+2. The API validates incoming data and executes the relevant authentication logic.
+3. After successful authentication, the client receives the supported authentication token.
+4. Protected requests pass through authentication middleware.
+5. Authorization and ownership checks determine whether the authenticated user may access or modify the requested resource.
+6. Business changes are persisted through the application’s data-access layer.
+
+Authentication establishes the identity associated with a request. Authorization determines whether that identity has permission to perform the operation. Both checks are necessary for protected resources.
+
+### Doctor discovery and availability
+
+1. A client requests doctor profiles, search results, or availability information.
+2. The API validates supported query parameters.
+3. The application retrieves the relevant records from PostgreSQL.
+4. The API returns the matching information.
+
+Availability shown to a client is informational until a booking is successfully committed. The booking workflow must revalidate relevant constraints against the database to prevent concurrent requests from creating conflicting records.
+
+### Consultation booking
+
+The booking workflow uses idempotency and database concurrency protection to reduce duplicate bookings and inconsistent results.
 
 ```mermaid
 sequenceDiagram
     actor Patient
     participant API as Express API
-    participant Auth as Authentication
+    participant Auth as Authentication Middleware
+    participant Service as Consultation Service
     participant DB as PostgreSQL
-    participant Audit as Audit Service
+    participant Audit as Audit Logging
 
-    Patient->>API: POST consultation + Idempotency-Key
-    API->>Auth: Validate token and PATIENT role
-    Auth-->>API: Authenticated patient
-    API->>DB: Start transaction
-    API->>DB: Check idempotency key
-    API->>DB: Validate and reserve availability
-    API->>DB: Create consultation and idempotency result
-    API->>Audit: Write audit event in transaction
-    API->>DB: Commit transaction
-    API-->>Patient: Booking result
-
-    Note over API,DB: On conflict or failure, reject or roll back as appropriate
+    Patient->>API: POST consultation with Idempotency-Key
+    API->>Auth: Authenticate request
+    Auth-->>API: Authenticated identity
+    API->>Service: Validate and process booking
+    Service->>DB: Begin transaction
+    Service->>DB: Check idempotency record
+    Service->>DB: Validate availability and booking constraints
+    Service->>DB: Create consultation and persist idempotency result
+    Service->>DB: Persist supported audit changes
+    DB-->>Service: Commit or constraint conflict
+    Service-->>API: Booking result or mapped error
+    API-->>Patient: HTTP response
 ```
 
-The application uses idempotency keys to make repeated booking requests safe. Repeating the same key and request can replay the original result; reusing a key with a different request is rejected.
+The exact internal sequence depends on the implemented service and transaction boundaries. The diagram represents the intended logical flow; it does not imply that every audit event is written through a separate service or that a database transaction is distributed.
 
-Database constraints protect against conflicting availability slots. Transactional writes help ensure that a successful booking and its associated audit record remain consistent.
+### Idempotency and concurrency
 
-### Concurrency handling
+Idempotency protects retryable client operations from creating duplicate business results when a client retries a request.
 
-- Use database transactions for related writes.
-- Enforce availability overlap rules at the PostgreSQL level.
-- Use unique constraints to prevent duplicate idempotency keys.
-- Enforce a single pending payment record per consultation through a database constraint.
-- Test concurrent booking attempts and repeated requests.
+- A repeated request with the same idempotency key and equivalent payload can return the original result.
+- Reusing a key with a different payload must be rejected.
+- Unique database constraints protect against simultaneous requests using the same key.
+- Related database writes should be kept in one transaction where atomicity is required.
+- Database constraint violations must be translated into appropriate API responses rather than exposed as raw database errors.
 
-Application-level checks alone are insufficient for concurrency safety because simultaneous requests can pass the same initial validation. Database constraints provide the final protection.
+**Application-level checks alone are not sufficient for concurrency safety.** Two requests can pass an application check before either writes to the database. Database constraints and transaction semantics provide the final protection.
+
+The current implementation includes concurrency-focused integration tests for booking retries, overlapping availability, and pending payment creation.
 
 ## 4. Data Model and Relationships
 
+The following ER diagram is a conceptual representation of the core domain. It is not a complete listing of the database schema. The actual fields, enum values, optionality, relations, and constraints must be taken from `prisma/schema.prisma`.
+
 ```mermaid
 erDiagram
-    USERS ||--o| DOCTORS : has
-    USERS ||--o{ CONSULTATIONS : books
-    DOCTORS ||--o{ AVAILABILITY_SLOTS : publishes
-    DOCTORS ||--o{ CONSULTATIONS : attends
-    CONSULTATIONS ||--o| PRESCRIPTIONS : produces
-    CONSULTATIONS ||--o{ PAYMENTS : has
-    USERS ||--o{ AUDIT_LOGS : performs
-    USERS ||--o{ IDEMPOTENCY_KEYS : owns
+    USER ||--o| PATIENT_PROFILE : has
+    USER ||--o| DOCTOR_PROFILE : has
+    DOCTOR_PROFILE ||--o{ AVAILABILITY_SLOT : offers
+    USER ||--o{ CONSULTATION : books
+    DOCTOR_PROFILE ||--o{ CONSULTATION : attends
+    CONSULTATION ||--o{ PRESCRIPTION : produces
+    CONSULTATION ||--o{ PAYMENT : has
+    USER ||--o{ AUDIT_LOG : performs
 
-    USERS {
-        uuid id PK
-        string email
-        string password_hash
+    USER {
+        string id PK
         string role
     }
-    DOCTORS {
-        uuid id PK
-        uuid user_id FK
-        string specialization
-        decimal consultation_fee
+
+    PATIENT_PROFILE {
+        string id PK
+        string user_id FK
     }
-    AVAILABILITY_SLOTS {
-        uuid id PK
-        uuid doctor_id FK
-        datetime starts_at
-        datetime ends_at
+
+    DOCTOR_PROFILE {
+        string id PK
+        string user_id FK
+    }
+
+    AVAILABILITY_SLOT {
+        string id PK
+        string doctor_id FK
+    }
+
+    CONSULTATION {
+        string id PK
+        string patient_id FK
+        string doctor_id FK
         string status
     }
-    CONSULTATIONS {
-        uuid id PK
-        uuid patient_id FK
-        uuid doctor_id FK
-        uuid slot_id FK
+
+    PRESCRIPTION {
+        string id PK
+        string consultation_id FK
+    }
+
+    PAYMENT {
+        string id PK
+        string consultation_id FK
         string status
     }
-    PRESCRIPTIONS {
-        uuid id PK
-        uuid consultation_id FK
-        string notes
-    }
-    PAYMENTS {
-        uuid id PK
-        uuid consultation_id FK
-        decimal amount
-        string status
-    }
-    AUDIT_LOGS {
-        uuid id PK
-        uuid actor_id FK
+
+    AUDIT_LOG {
+        string id PK
+        string actor_id FK
         string action
-        datetime created_at
     }
 ```
 
-This diagram is a conceptual overview. The Prisma schema is the source of truth for actual table and column definitions; verify names and cardinalities against it before treating this diagram as an exact database specification.
+The diagram illustrates the domain concepts and possible relationships. Actual table names, identifier types, cardinalities, and fields may differ in the implementation and must not be inferred from this diagram alone.
 
-## 5. Transactions, Retries, and Failure Handling
+### Data integrity principles
 
-### Transaction management
+- Use foreign keys for relationships between persisted records.
+- Use appropriate unique constraints to prevent duplicate identifiers and idempotency records.
+- Prevent overlapping active availability slots for the same doctor using the implemented database constraint.
+- Enforce the rule that at most one pending payment exists per consultation using the implemented partial unique index.
+- Use transactions for related state changes that must succeed or fail together.
+- Apply authorization and ownership checks before exposing protected patient, doctor, consultation, prescription, or payment data.
+- Avoid storing unnecessary personal or sensitive information.
 
-Operations that change related business records should execute within a database transaction where consistency requires it. Booking and its idempotency record must not be committed independently. Audit events for supported critical operations should be written transactionally with those operations.
+## 5. Transactions, Failure Handling, and Reliability
 
-Transactions should remain short and should not include slow external network calls.
+### Transaction boundaries
+
+A database transaction should be used when a workflow requires multiple related changes to remain consistent. Consultation creation, its idempotency result, and supported audit writes should be transactionally coordinated where required by the implementation.
+
+A transaction must either commit all required changes or roll them back. This protects against partial writes when a later operation fails.
+
+External network calls should not be held open inside long-running database transactions. If an external payment provider is introduced, the integration should use a separate, explicitly designed workflow.
 
 ### Retry and backoff strategy
 
-- Retry transient connection failures and serialization or deadlock conflicts only when safe.
-- Use bounded exponential backoff with jitter.
-- Set a maximum retry count and a request deadline.
-- Do not blindly retry validation errors, authorization failures, or permanent conflicts.
+Retries should be limited to failures that are transient and safe to retry.
+
+- Retry eligible transient connection failures, serialization failures, or deadlocks only when the operation can safely be repeated.
+- Use bounded exponential backoff with jitter, a maximum retry count, and an overall request deadline.
+- Do not blindly retry validation failures, authorization failures, or permanent business conflicts.
 - Use idempotency keys for retryable client writes.
-- Treat unknown outcomes carefully: query the persisted idempotency result before repeating a write.
+- For an uncertain write outcome, inspect the persisted idempotency result before repeating the operation.
+- Map known database constraint failures to suitable application-level errors.
+- Avoid unbounded retries, which can amplify load during an outage.
 
-If a future payment gateway is integrated, use explicit payment states, idempotent provider requests, and reconciliation for uncertain outcomes.
+A retry policy must be implemented and tested for each operation that requires it; documenting a strategy does not mean every database operation automatically retries.
 
-### Sagas and asynchronous work
+### Payment consistency and race conditions
 
-The current backend does not implement a distributed saga or background job queue. If future workflows span the database and external systems, use a saga or an outbox-based design.
+The payment workflow currently supports pending payment records; it does not implement external payment-gateway processing or settlement.
 
-For example, a future payment workflow could persist a payment request and outbox event in one transaction, process the event asynchronously, and reconcile provider results. Compensation and retry policies must be defined for each state transition.
+Creating a pending payment must be concurrency-safe. A check performed only in application code is insufficient because concurrent requests can both observe that no pending payment exists.
 
-## 6. Scalability, Caching, and Partitioning
+The implemented partial unique index is the final database-level safeguard against multiple pending payments for the same consultation. The application should handle the resulting conflict consistently and return an appropriate response. Integration tests exercise concurrent payment creation.
+
+If a payment gateway is added later, the design should include provider-side idempotency, explicit payment state transitions, webhook signature verification, replay protection, reconciliation of uncertain outcomes, and carefully defined handling of failed or delayed payments.
+
+### Sagas and asynchronous processing
+
+Distributed sagas, an outbox-based event pipeline, and background job processing are not currently implemented.
+
+If future workflows span PostgreSQL and external systems, consider an outbox pattern: persist the business change and an event record in the same transaction, then process the event asynchronously. Consumers should be idempotent, retries should be bounded, and each workflow should define recovery or compensation behavior.
+
+These mechanisms should be introduced only when the corresponding asynchronous workflow exists and its consistency requirements are understood.
+
+## 6. Scalability, Performance, and Partitioning
 
 ### Application scaling
 
-The modular monolith can initially scale horizontally by running multiple stateless API instances behind a load balancer. Persistent business state remains in PostgreSQL.
+The modular monolith can be scaled horizontally by running multiple stateless API instances behind a load balancer. PostgreSQL remains the shared source of truth.
 
-Production deployment should include connection-pool limits, request timeouts, graceful shutdown, resource limits, and health-based routing.
+Production deployment should consider:
 
-### Database optimization
+- Database connection-pool limits and connection lifecycle management.
+- Request and database-operation timeouts.
+- Graceful shutdown and health-based routing.
+- CPU and memory limits.
+- Load balancing across healthy API instances.
+- Safe configuration and secret management across replicas.
 
-- Index frequently filtered and joined columns.
-- Use pagination with bounded page sizes.
-- Select only the fields required by each endpoint.
-- Inspect query plans for high-volume doctor search and booking queries.
-- Monitor connection usage, lock contention, and slow queries.
+Horizontal scaling does not by itself guarantee the target throughput or latency. Database capacity, query efficiency, connection limits, and contention must also be measured.
+
+### Database performance
+
+To work toward the assignment's p95 latency targets:
+
+- Index frequently filtered and joined columns based on actual query patterns.
+- Use bounded pagination for potentially large result sets.
+- Select only fields required by an endpoint.
+- Inspect PostgreSQL query plans for doctor discovery and consultation queries.
+- Monitor slow queries, lock waits, connection-pool saturation, and database resource usage.
+- Use representative load tests to identify bottlenecks before adding infrastructure.
+
+No p95 latency target should be described as achieved until it has been measured under a documented workload.
 
 ### Caching
 
-Redis is optional and is not currently implemented. A future cache could hold frequently requested doctor profiles and search results with short TTLs.
+Redis caching is not implemented.
 
-Availability and booking decisions must still be validated against the database. Cache invalidation and stale-data handling are essential.
+A future cache may be useful for frequently requested doctor profiles or search results. Cached information should have an explicit time-to-live, invalidation strategy, and stale-data policy.
 
-### Data partitioning
+**Booking and availability decisions must be validated against PostgreSQL.** A cache must not be treated as the authority for allocating a slot or preventing conflicting bookings.
 
-Partitioning is not currently implemented. At the expected growth stage, assess partitioning high-volume audit and historical consultation tables by creation date. Retention policies and query patterns should determine the partition key.
+### Partitioning
 
-Do not introduce partitioning without measuring table size, query performance, and operational complexity.
+Database partitioning is not currently implemented.
+
+If audit records or historical consultations become large enough to justify partitioning, evaluate date-based partitioning against real table sizes, query patterns, retention requirements, and maintenance costs. Use query plans and production measurements to determine whether partitioning improves performance.
+
+Partitioning should not be introduced merely because the system has a projected daily consultation volume.
 
 ## 7. Security and Compliance
 
-The application uses token-based authentication, role-aware authorization, input validation, security middleware, and audit logging.
+Security controls should be applied consistently across authentication, business logic, database access, deployment, and operations.
 
-Production hardening should include:
+### Current application-level controls
 
-- TLS in transit and encryption at rest.
-- Strong password hashing and secure secret storage.
-- MFA for privileged accounts.
-- Least-privilege database and service identities.
-- Strict CORS configuration and rate limits.
-- Sensitive-data minimization in logs.
-- Dependency vulnerability scanning and timely patching.
-- Secret rotation, access reviews, and audit-log retention policies.
-- Tested backup restoration and incident response procedures.
+The current backend includes token-based authentication, role-aware authorization and ownership checks in protected workflows, Zod-based input validation, security middleware including Helmet, CORS configuration, authentication rate limiting, bounded JSON request bodies, and audit logging.
 
-A separate threat model and security checklist should document threats, mitigations, residual risks, and verification evidence.
+Local configuration uses environment variables. Real secrets must not be committed to source control; `.env` should remain excluded from Git, and `.env.example` should contain placeholder values only.
+
+### Production hardening requirements
+
+Before production deployment, verify and implement the controls required for the deployment environment:
+
+- Enforce HTTPS/TLS at the deployment boundary.
+- Configure encryption at rest for database storage and backups.
+- Use least-privilege database accounts and service identities.
+- Store production secrets in a managed secret store and define rotation procedures.
+- Verify password hashing, token expiration, token validation, and session-revocation behavior against the implementation.
+- Provide MFA for privileged accounts where required by the assignment and operational risk.
+- Review authorization for every sensitive resource and state-changing endpoint.
+- Minimize sensitive information in application logs and define retention/access policies.
+- Scan application dependencies and container images for vulnerabilities.
+- Restrict database and administrative interfaces from public access.
+- Test backup restoration and document incident-response procedures.
+
+A checklist is not evidence that a control is deployed. Record verification evidence and residual risks in `docs/security.md`.
+
+### Threat-model priorities
+
+| Threat                               | Main mitigation                                                                              |
+| ------------------------------------ | -------------------------------------------------------------------------------------------- |
+| Unauthorized access                  | Authentication, authorization, ownership checks, and token validation.                       |
+| Broken object-level authorization    | Verify access to the specific patient, consultation, prescription, and payment resource.     |
+| Invalid or malicious input           | Schema validation, bounded request bodies, and safe database access patterns.                |
+| Brute-force login attempts           | Authentication rate limiting and appropriate monitoring.                                     |
+| Duplicate or conflicting bookings    | Idempotency, database constraints, and transactions.                                         |
+| Duplicate pending payments           | Database-level partial unique index and conflict handling.                                   |
+| Credential leakage                   | Environment-based configuration, ignored local secret files, and managed production secrets. |
+| Sensitive-data exposure through logs | Log minimization, access controls, and retention policies.                                   |
+| Dependency vulnerabilities           | Automated dependency checks, container scanning, and timely remediation.                     |
+| Data loss or service disruption      | Backups, restoration drills, health checks, and documented recovery procedures.              |
+
+Telemedicine systems may process sensitive personal and health-related information. Access should be limited to authorized users, and data collection, retention, disclosure, and deletion should follow applicable legal and organizational requirements.
 
 ## 8. Observability and Operations
 
-The application includes structured logging, request-context support, audit events, and liveness/readiness endpoints.
+### Implemented observability features
 
-A production observability stack should additionally capture:
+The application includes structured request/application logging, request-context support, audit events, and health endpoints:
 
-- Request count, error rate, and latency percentiles.
-- Database latency, connection-pool saturation, and lock waits.
+- `GET /health/live` indicates whether the API process is alive.
+- `GET /health/ready` checks readiness, including database connectivity.
+
+Docker Compose also defines health checks for the API and PostgreSQL. CI validates the application through automated checks.
+
+Liveness and readiness checks are operational signals; they do not replace production monitoring, alerting, or service-level measurements.
+
+### Recommended production observability
+
+Metrics exporters, dashboards, alert rules, and distributed tracing are not currently implemented.
+
+A production deployment should consider collecting:
+
+- Request rate, error rate, and latency percentiles.
+- Database query latency, connection-pool usage, and lock contention.
 - Booking conflicts and idempotency replay rates.
-- Process memory, CPU, restarts, and dependency health.
-- Distributed traces across the API and database where supported.
+- CPU, memory, process restarts, and dependency health.
+- Authentication failures and rate-limit events.
+- Availability indicators and error-budget consumption.
 
-Metrics exporters, tracing infrastructure, dashboards, and alert rules are planned additions and must be implemented and tested before claiming production observability coverage.
+Logs must not expose passwords, access tokens, secret values, or unnecessary patient data. Audit events should capture the minimum information needed to support accountability and investigation.
 
-## 9. Availability, Backup, and Disaster Recovery
+Alert thresholds should be established using measured baseline behavior and the service's operational objectives.
 
-A 99.95% availability target permits approximately 21.6 minutes of downtime in a 30-day month. This target requires measured service-level indicators and an operational plan; it is not guaranteed by the current code alone.
+## 9. Infrastructure, CI, and Deployment
 
-A production deployment should include:
+### Containerized environment
 
-- Automated PostgreSQL backups and point-in-time recovery where supported.
-- Encrypted backup storage and restricted access.
-- Documented recovery point objective (RPO) and recovery time objective (RTO).
-- Periodic restore drills and data-integrity checks.
-- Database monitoring, capacity planning, and tested failover.
-- Health checks, rolling deployments, and rollback procedures.
-- Incident response and operational ownership.
+The repository includes a Dockerfile and Docker Compose configuration for the API and PostgreSQL. The containerized environment has been built and started successfully, and both services were reported healthy during local verification.
 
-Actual RPO/RTO values must be selected based on business requirements and validated through recovery testing.
+Configuration is supplied through environment variables and the Docker-specific environment configuration. Real credentials must remain outside version control.
 
-## 10. Implementation Status and Future Work
+The Compose environment supports local reproducibility; it should not be treated as a complete production deployment architecture.
 
-### Implemented
+### Continuous integration
 
-- REST API and modular TypeScript services.
-- Authentication and role-based access checks.
-- Doctor discovery and availability management.
-- Consultation booking and lifecycle management.
-- Idempotent booking and database concurrency constraints.
-- Prescription management and pending payment records.
-- Audit events, structured logging, and health checks.
-- Unit and PostgreSQL integration tests.
-- README and OpenAPI documentation.
+The GitHub Actions workflow validates key aspects of the codebase, including type checking, automated tests, PostgreSQL-backed integration tests, and the production build.
 
-### Planned or requiring further verification
+The reported verification results are:
 
-- Administrator analytics endpoints.
-- Metrics exporter, dashboards, alerting, and distributed tracing.
-- Dockerized deployment and CI/CD workflow.
-- Terraform infrastructure configuration.
-- Redis caching and background workers.
-- Production load testing against latency and throughput targets.
-- Formal threat model, security checklist, and disaster recovery drills.
+- TypeScript type checking: passed.
+- Unit tests: passed.
+- PostgreSQL integration tests: passed.
+- Production build: passed.
+- Docker Compose configuration validation: passed.
+- Local container health checks: passed.
 
-The system should be considered a tested backend implementation with a production-oriented design, not a fully deployed production platform, until the planned infrastructure, security controls, performance tests, and operational procedures are completed.
+These results reflect the reported development verification. The latest hosted GitHub Actions result should be confirmed in the repository before submission.
+
+### Deployment safeguards
+
+A production deployment should use separate environment configuration, restricted secret access, database migration controls, health-based rollout, and a tested rollback procedure. Schema changes should be reviewed for compatibility with running application instances and existing data.
+
+Container image scanning, deployment automation, and production monitoring should be added where required by the final deployment environment.
+
+## 10. Availability, Backup, and Disaster Recovery
+
+The assignment's 99.95% availability target corresponds to approximately **21.6 minutes of downtime in a 30-day month**. This is a target, not a guarantee provided by the current local setup.
+
+A production operations plan should define:
+
+- Automated PostgreSQL backups and retention schedules.
+- Encrypted backup storage with restricted access.
+- Point-in-time recovery where supported.
+- Recovery Point Objective (RPO) and Recovery Time Objective (RTO).
+- Regular restoration drills and integrity verification.
+- Database capacity monitoring and tested recovery procedures.
+- Health-based deployment, rollback, and incident escalation.
+- Ownership for investigating and resolving service disruptions.
+
+RPO and RTO values must be agreed with the business and validated through recovery tests. Backup creation alone is not sufficient; restoration must be demonstrated.
+
+High availability across multiple failure domains, automated database failover, and disaster-recovery infrastructure require deployment-level configuration and validation beyond the current local Docker Compose environment.
+
+## 11. Testing and Quality Assurance
+
+Testing covers both application behavior and database-dependent concurrency behavior.
+
+### Current verification
+
+The reported results include:
+
+- Unit tests: 10 passed.
+- Integration tests: 41 passed across 6 test files.
+- Type checking: passed.
+- Production build: passed.
+- Docker Compose configuration validation: passed.
+- Local API liveness and readiness checks: passed.
+
+Integration coverage includes important database-backed workflows and concurrency scenarios such as duplicate booking retries, overlapping availability, and concurrent pending-payment creation.
+
+### Additional validation for production readiness
+
+Before production use, extend or verify coverage for:
+
+- Authentication failures and token expiration.
+- Role-based authorization and resource ownership.
+- Invalid request payloads and boundary cases.
+- Consultation lifecycle transition rules.
+- Prescription access and eligibility.
+- Payment state handling and idempotency.
+- Rate-limit behavior and security middleware.
+- Migration behavior and recovery from failed deployments.
+- Load tests for the target consultation volume and latency objectives.
+- Backup restoration and operational failure scenarios.
+
+Automated test success is necessary but does not, on its own, establish production performance, security, or availability.
+
+## 12. Implementation Status and Future Work
+
+| Capability                                          | Status                                                  |
+| --------------------------------------------------- | ------------------------------------------------------- |
+| REST API and PostgreSQL persistence                 | Implemented                                             |
+| TypeScript and Prisma-based data access             | Implemented                                             |
+| Authentication and role-aware access control        | Implemented                                             |
+| Doctor discovery and availability workflows         | Implemented                                             |
+| Consultation booking and lifecycle workflows        | Implemented                                             |
+| Idempotency and database concurrency safeguards     | Implemented                                             |
+| Prescription workflow                               | Implemented                                             |
+| Pending payment records and concurrency protection  | Implemented                                             |
+| Structured logging and audit events                 | Implemented                                             |
+| Liveness and readiness endpoints                    | Implemented                                             |
+| Dockerfile and Docker Compose                       | Implemented and locally verified                        |
+| Automated CI and test suite                         | Implemented; hosted CI result should be confirmed       |
+| Redis caching                                       | Future work                                             |
+| Background job processing and outbox                | Future work                                             |
+| Payment-gateway integration and settlement          | Future work                                             |
+| Production metrics, dashboards, alerts, and tracing | Future work                                             |
+| Database partitioning                               | Future work, subject to measurement                     |
+| Production backup, failover, and disaster recovery  | Requires deployment-level implementation and validation |
+| Load testing against performance targets            | Requires measurement and evidence                       |
+
+### Recommended implementation priorities
+
+1. Complete and verify all required core API workflows and their authorization rules.
+2. Maintain database-level idempotency and concurrency protection, including the pending-payment uniqueness rule.
+3. Keep automated tests and CI passing as the codebase evolves.
+4. Verify security hardening and document residual risks in `docs/security.md`.
+5. Measure latency and throughput under representative workloads before claiming the performance targets are met.
+6. Add production observability, backup/restore validation, and deployment safeguards.
+7. Introduce caching, asynchronous processing, or partitioning only when justified by measured requirements.
+
+## 13. Conclusion
+
+The current backend establishes a modular, database-backed foundation for telemedicine workflows. Its use of PostgreSQL transactions, idempotency, database constraints, access control, automated testing, structured logging, health checks, containerization, and CI addresses key reliability and maintainability requirements.
+
+The next stage toward production readiness is to validate the assignment's scale and latency objectives, complete deployment-specific security controls, implement operational monitoring and recovery procedures, and add future infrastructure only when supported by measured needs.
+
+**Source of truth:** `prisma/schema.prisma` defines the actual database schema and constraints; the application source defines the implemented behavior; `docs/openapi.yaml` defines the documented API contract; and `docs/security.md` records the security threat model and verification checklist.
+
+**Important:** Architecture diagrams and targets describe the design and intended behavior. They must not be interpreted as evidence that unimplemented infrastructure or unmeasured production guarantees already exist.
