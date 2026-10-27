@@ -9,6 +9,7 @@ import { authenticate } from "./common/middleware/authenticate";
 import doctorRouter from "./modules/doctors/doctor.routes";
 import consultationRouter from "./modules/consultations/consultation.routes";
 import prescriptionRouter from "./modules/prescriptions/prescription.routes";
+import paymentRouter from "./modules/payments/payment.routes";
 
 const app = express();
 
@@ -23,6 +24,7 @@ app.use("/api/v1/auth", authRouter);
 app.use("/api/v1/doctors", doctorRouter);
 app.use("/api/v1/consultations", consultationRouter);
 app.use("/api/v1/prescriptions", prescriptionRouter);
+app.use("/api/v1/payments", paymentRouter);
 
 app.get("/health/live", (_req, res) => {
   res.status(200).json({
