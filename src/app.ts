@@ -8,6 +8,7 @@ import authRouter from "./modules/auth/auth.routes";
 import { authenticate } from "./common/middleware/authenticate";
 import doctorRouter from "./modules/doctors/doctor.routes";
 import consultationRouter from "./modules/consultations/consultation.routes";
+import prescriptionRouter from "./modules/prescriptions/prescription.routes";
 
 const app = express();
 
@@ -21,6 +22,7 @@ app.use(httpLogger);
 app.use("/api/v1/auth", authRouter);
 app.use("/api/v1/doctors", doctorRouter);
 app.use("/api/v1/consultations", consultationRouter);
+app.use("/api/v1/prescriptions", prescriptionRouter);
 
 app.get("/health/live", (_req, res) => {
   res.status(200).json({
