@@ -15,6 +15,8 @@ servers:
 tags:
   - name: Health
     description: Application liveness and database readiness checks.
+  - name: Observability
+    description: Application health and Prometheus-compatible metrics.
   - name: Authentication
     description: Patient registration, login, and authenticated user information.
   - name: Doctors
@@ -25,6 +27,8 @@ tags:
     description: Prescription creation and access-controlled retrieval.
   - name: Payments
     description: Creation and retrieval of pending payment records.
+  - name: Admin
+    description: Administrator analytics and platform aggregation insights.
 
 paths:
   /health/live:
@@ -48,6 +52,26 @@ paths:
           description: Database is reachable.
         "503":
           description: Database is unavailable.
+
+  /metrics:
+    get:
+      operationId: getMetrics
+      tags: [Observability]
+      summary: Get application runtime metrics
+      description: |
+        Exposes Prometheus-compatible text exposition format by default,
+        or structured JSON format if the Accept request header contains application/json.
+      security: []
+      responses:
+        "200":
+          description: Application metrics snapshot.
+          content:
+            text/plain:
+              schema:
+                type: string
+            application/json:
+              schema:
+                type: object
 
   /api/v1/auth/register:
     post:
@@ -503,6 +527,45 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /api/v1/admin/analytics:
+    get:
+      operationId: getAdminAnalytics
+      tags: [Admin]
+      summary: Retrieve aggregated platform analytics
+      description: |
+        Requires the ADMIN role. Aggregates consultation volume by status,
+        completion and cancellation rates, doctor utilization, payment summaries,
+        and user distributions across a specified date range.
+        Excludes confidential medical notes, prescriptions, and patient PII.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: from
+          in: query
+          description: Optional start date-time; ISO 8601 string with timezone.
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          description: Optional end date-time; ISO 8601 string with timezone.
+          schema:
+            type: string
+            format: date-time
+      responses:
+        "200":
+          description: Aggregated admin analytics report.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminAnalyticsResponse"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
 components:
   securitySchemes:
     bearerAuth:
@@ -605,6 +668,91 @@ components:
           type: string
           minLength: 1
           maxLength: 10000
+
+    AdminAnalyticsResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [timeRange, generatedAt, consultations, doctors, payments, users]
+          properties:
+            timeRange:
+              type: object
+              properties:
+                from:
+                  type: string
+                  nullable: true
+                to:
+                  type: string
+                  nullable: true
+            generatedAt:
+              type: string
+              format: date-time
+            consultations:
+              type: object
+              required: [total, byStatus, completionRatePercent, cancellationRatePercent]
+              properties:
+                total:
+                  type: integer
+                byStatus:
+                  type: object
+                  additionalProperties:
+                    type: integer
+                completionRatePercent:
+                  type: number
+                cancellationRatePercent:
+                  type: number
+            doctors:
+              type: object
+              required: [totalDoctors, verifiedDoctors, activeConsultingDoctors, slots]
+              properties:
+                totalDoctors:
+                  type: integer
+                verifiedDoctors:
+                  type: integer
+                activeConsultingDoctors:
+                  type: integer
+                slots:
+                  type: object
+                  required: [total, byStatus, utilizationRatePercent]
+                  properties:
+                    total:
+                      type: integer
+                    byStatus:
+                      type: object
+                      additionalProperties:
+                        type: integer
+                    utilizationRatePercent:
+                      type: number
+            payments:
+              type: object
+              required: [totalCount, currency, byStatus, totalCollectedRevenue, totalPendingAmount]
+              properties:
+                totalCount:
+                  type: integer
+                currency:
+                  type: string
+                byStatus:
+                  type: object
+                totalCollectedRevenue:
+                  type: number
+                totalPendingAmount:
+                  type: number
+            users:
+              type: object
+              required: [total, byRole, byStatus]
+              properties:
+                total:
+                  type: integer
+                byRole:
+                  type: object
+                  additionalProperties:
+                    type: integer
+                byStatus:
+                  type: object
+                  additionalProperties:
+                    type: integer
 
     Error:
       type: object

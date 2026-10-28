@@ -88,11 +88,62 @@ async function main() {
         verified: true,
       },
     });
-  });
+    console.log("Development doctor seed completed.");
+    console.log(`Doctor email: ${email}`);
+    console.log("Doctor password: not displayed.");
 
-  console.log("Development doctor seed completed.");
-  console.log(`Doctor email: ${email}`);
-  console.log("Doctor password: not displayed.");
+    // Optional Admin Seed
+    const adminEmail = process.env.SEED_ADMIN_EMAIL?.trim().toLowerCase();
+    const adminPassword = process.env.SEED_ADMIN_PASSWORD;
+    const adminName = process.env.SEED_ADMIN_NAME?.trim() ?? "System Administrator";
+
+    if (adminEmail && adminPassword) {
+      if (Buffer.byteLength(adminPassword, "utf8") > 72) {
+        throw new Error("Admin seed password must not exceed 72 UTF-8 bytes.");
+      }
+      if (adminPassword.length < 12) {
+        throw new Error("Admin seed password must contain at least 12 characters.");
+      }
+
+      const adminPasswordHash = await bcrypt.hash(adminPassword, 12);
+
+      const existingAdmin = await tx.user.findUnique({
+        where: { email: adminEmail },
+        select: { id: true, role: true },
+      });
+
+      if (existingAdmin && existingAdmin.role !== "ADMIN") {
+        throw new Error("The seed email belongs to a non-admin account.");
+      }
+
+      const adminUser = existingAdmin
+        ? await tx.user.update({
+            where: { id: existingAdmin.id },
+            data: { passwordHash: adminPasswordHash, status: "ACTIVE" },
+            select: { id: true },
+          })
+        : await tx.user.create({
+            data: {
+              email: adminEmail,
+              passwordHash: adminPasswordHash,
+              role: "ADMIN",
+              status: "ACTIVE",
+              profile: { create: { fullName: adminName } },
+            },
+            select: { id: true },
+          });
+
+      await tx.profile.upsert({
+        where: { userId: adminUser.id },
+        update: { fullName: adminName },
+        create: { userId: adminUser.id, fullName: adminName },
+      });
+
+      console.log("Development administrator seed completed.");
+      console.log(`Admin email: ${adminEmail}`);
+      console.log("Admin password: not displayed.");
+    }
+  });
 }
 
 main()

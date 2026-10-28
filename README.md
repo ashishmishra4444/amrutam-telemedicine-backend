@@ -25,11 +25,14 @@ A REST API backend for a telemedicine platform, built with Node.js, TypeScript, 
 - Consultation status transitions, ownership checks, and cancellation handling.
 - Prescription creation and retrieval with role and ownership validation.
 - Payment record creation using the doctor's consultation fee.
-- Transactional audit logging for important successful operations.
-- Structured request logging and centralized error handling.
+- Administrator analytics providing consultation volumes, doctor utilization, and payment summaries without exposing patient PII.
+- Observability metrics endpoint (`/metrics`) exposing Prometheus-compatible text and JSON metrics.
+- Transactional audit logging for important operations.
+- Structured request logging with request correlation IDs and centralized error handling.
 - Unit and PostgreSQL integration tests.
+- Standalone load-testing utility comparing measured p95 latency against SLA design targets.
 
-**Payment scope:** The current payment module creates pending payment records. It does not itself process payments through a payment gateway.
+**Payment scope:** The current payment module creates pending payment records. It does not itself process payments through an external payment gateway.
 
 ## Prerequisites
 
@@ -128,32 +131,37 @@ The default configured port is `3000`. Check your environment configuration if y
 | `npm test` | Run unit tests |
 | `npm run test:watch` | Run unit tests in watch mode |
 | `npm run test:integration` | Run PostgreSQL integration tests |
+| `npm run test:load` | Run the standalone load-test benchmark against target API |
 | `npm run db:generate` | Generate the Prisma client |
 | `npm run db:migrate` | Apply existing database migrations |
 | `npm run db:seed` | Run the configured database seed |
 
 ## API Overview
 
-All application routes use the `/api/v1` prefix.
+All business routes use the `/api/v1` prefix. System health and observability endpoints are hosted at root paths.
 
-| Method | Endpoint | Purpose |
-|---|---|---|
-| POST | `/api/v1/auth/register` | Register a patient |
-| POST | `/api/v1/auth/login` | Authenticate a user |
-| GET | `/api/v1/auth/me` | Get the authenticated user's information |
-| GET | `/api/v1/doctors` | Search and filter doctors |
-| GET | `/api/v1/doctors/:doctorId` | Retrieve a doctor profile |
-| GET | `/api/v1/doctors/:doctorId/availability` | List available slots for a doctor |
-| POST | `/api/v1/doctors/availability` | Create doctor availability |
-| POST | `/api/v1/consultations` | Book a consultation |
-| GET | `/api/v1/consultations` | List consultations accessible to the user |
-| PATCH | `/api/v1/consultations/:consultationId/status` | Update consultation status |
-| POST | `/api/v1/prescriptions` | Create a prescription |
-| GET | `/api/v1/prescriptions` | List accessible prescriptions |
-| GET | `/api/v1/prescriptions/:prescriptionId` | Retrieve a prescription |
-| POST | `/api/v1/payments` | Create a pending payment record |
-| GET | `/api/v1/payments` | List accessible payment records |
-| GET | `/api/v1/payments/:paymentId` | Retrieve a payment record |
+| Method | Endpoint | Role | Purpose |
+|---|---|---|---|
+| GET | `/health/live` | Public | Liveness probe indicating service process is running |
+| GET | `/health/ready` | Public | Readiness probe indicating PostgreSQL database connectivity |
+| GET | `/metrics` | Public | Prometheus text exposition and structured JSON runtime metrics |
+| POST | `/api/v1/auth/register` | Public | Register a patient account |
+| POST | `/api/v1/auth/login` | Public | Authenticate a user and receive JWT |
+| GET | `/api/v1/auth/me` | Authenticated | Get the authenticated user's information |
+| GET | `/api/v1/doctors` | Public | Search and filter doctors |
+| GET | `/api/v1/doctors/:doctorId` | Public | Retrieve a doctor profile |
+| GET | `/api/v1/doctors/:doctorId/availability` | Public | List available slots for a doctor |
+| POST | `/api/v1/doctors/availability` | DOCTOR | Create doctor availability |
+| POST | `/api/v1/consultations` | PATIENT | Book a consultation (requires `Idempotency-Key`) |
+| GET | `/api/v1/consultations` | PATIENT / DOCTOR | List consultations accessible to the user |
+| PATCH | `/api/v1/consultations/:consultationId/status` | PATIENT / DOCTOR | Update consultation status |
+| POST | `/api/v1/prescriptions` | DOCTOR | Create a prescription for completed consultation |
+| GET | `/api/v1/prescriptions` | PATIENT / DOCTOR | List accessible prescriptions |
+| GET | `/api/v1/prescriptions/:prescriptionId` | PATIENT / DOCTOR | Retrieve a prescription |
+| POST | `/api/v1/payments` | PATIENT | Create a pending payment record |
+| GET | `/api/v1/payments` | PATIENT / DOCTOR | List accessible payment records |
+| GET | `/api/v1/payments/:paymentId` | PATIENT / DOCTOR | Retrieve a payment record |
+| GET | `/api/v1/admin/analytics` | ADMIN | Retrieve aggregated platform metrics and utilization |
 
 Protected endpoints require a valid bearer token:
 
@@ -179,14 +187,28 @@ Run the PostgreSQL integration tests:
 npm run test:integration
 ```
 
-Check types and build the project:
+Integration tests require a correctly configured `TEST_DATABASE_URL` pointing to the dedicated test database.
+
+### Load Testing
+
+Run the reproducible benchmark runner against the target server:
 
 ```bash
-npm run typecheck
-npm run build
+# Ensure development server is running in another terminal (npm run dev:tsx)
+npm run test:load
 ```
 
-Integration tests require a correctly configured `TEST_DATABASE_URL` pointing to the dedicated test database.
+Custom configurations can be supplied via environment variables:
+
+```bash
+TARGET_URL="http://localhost:3000" \
+ENDPOINT="/health/live" \
+CONCURRENCY=20 \
+TOTAL_REQUESTS=200 \
+npm run test:load
+```
+
+The load test reports total throughput (RPS), success rate, and latency percentiles (min, avg, p50, p90, p95, p99), comparing measured p95 against the assignment design targets (<200ms reads, <500ms writes).
 
 ## Security Considerations
 
@@ -254,9 +276,9 @@ The GitHub Actions workflow is located at `.github/workflows/ci.yml`. It runs au
 
 ## Current Scope and Future Work
 
-The current payment module creates pending payment records; it does not integrate with a payment gateway.
+The current payment module creates pending payment records; it does not integrate with an external payment gateway. Core business workflows, administrator analytics, Prometheus metrics, database concurrency constraints, and audit logging are implemented.
 
-Further improvements may include payment gateway integration, asynchronous notifications, expanded administrator analytics, production deployment automation, and enhanced monitoring and alerting.
+Further improvements may include external payment gateway integration and settlement, asynchronous notification queues, distributed tracing exporters, and multi-region deployment automation.
 
 ## License
 

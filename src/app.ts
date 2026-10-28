@@ -10,6 +10,12 @@ import doctorRouter from "./modules/doctors/doctor.routes";
 import consultationRouter from "./modules/consultations/consultation.routes";
 import prescriptionRouter from "./modules/prescriptions/prescription.routes";
 import paymentRouter from "./modules/payments/payment.routes";
+import adminRouter from "./modules/admin/admin.routes";
+import {
+  metricsMiddleware,
+  getMetricsAsText,
+  getMetricsAsJson,
+} from "./observability/metrics";
 
 const app = express();
 
@@ -37,12 +43,14 @@ app.use(
 );
 app.use(express.json({ limit: "100kb" }));
 app.use(httpLogger);
+app.use(metricsMiddleware);
 
 app.use("/api/v1/auth", authRouter);
 app.use("/api/v1/doctors", doctorRouter);
 app.use("/api/v1/consultations", consultationRouter);
 app.use("/api/v1/prescriptions", prescriptionRouter);
 app.use("/api/v1/payments", paymentRouter);
+app.use("/api/v1/admin", adminRouter);
 
 app.get("/health/live", (_req, res) => {
   res.status(200).json({
@@ -65,6 +73,17 @@ app.get("/health/ready", async (_req, res) => {
       database: "unavailable",
     });
   }
+});
+
+app.get("/metrics", (req, res) => {
+  const accept = req.headers.accept ?? "";
+  if (accept.includes("application/json")) {
+    res.status(200).json(getMetricsAsJson());
+    return;
+  }
+
+  res.setHeader("Content-Type", "text/plain; version=0.0.4; charset=utf-8");
+  res.status(200).send(getMetricsAsText());
 });
 
 app.get("/api/v1/auth/me", authenticate, (req, res) => {

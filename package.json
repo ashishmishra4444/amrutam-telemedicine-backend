@@ -13,6 +13,7 @@
     "start": "node dist/server.js",
     "test:watch": "vitest src",
     "test:integration": "vitest run --config vitest.integration.config.ts",
+    "test:load": "tsx scripts/load-test.ts",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate deploy",
     "db:seed": "prisma db seed",

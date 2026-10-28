@@ -33,15 +33,17 @@ flowchart TB
     Consultations["Consultation Booking and Lifecycle"]
     Prescriptions["Prescription Management"]
     Payments["Payment Records"]
+    Admin["Admin Analytics"]
     Audit["Audit Events"]
     DB[("PostgreSQL")]
     Logs["Structured Application Logs"]
+    Metrics["Runtime Metrics - /metrics"]
     Health["Liveness and Readiness Checks"]
     CI["GitHub Actions CI"]
     Docker["Docker and Docker Compose"]
     Cache["Redis Cache - Future"]
     Jobs["Background Workers - Future"]
-    Metrics["Metrics, Dashboards and Tracing - Future"]
+    Tracing["Distributed Tracing & Dashboards - Future"]
     Gateway["Payment Gateway - Future"]
 
     Client --> API
@@ -50,19 +52,23 @@ flowchart TB
     API --> Consultations
     API --> Prescriptions
     API --> Payments
+    API --> Admin
 
     Auth --> DB
     Doctors --> DB
     Consultations --> DB
     Prescriptions --> DB
     Payments --> DB
+    Admin --> DB
 
     Consultations --> Audit
     Prescriptions --> Audit
     Payments --> Audit
+    Admin --> Audit
     Audit --> DB
 
     API --> Logs
+    API --> Metrics
     API --> Health
     CI --> Docker
     Docker --> API
@@ -70,7 +76,7 @@ flowchart TB
 
     API -. "Future integration" .-> Cache
     DB -. "Future asynchronous processing" .-> Jobs
-    API -. "Future observability" .-> Metrics
+    API -. "Future observability" .-> Tracing
     Payments -. "Future integration" .-> Gateway
 ```
 
@@ -91,16 +97,18 @@ Business modules should communicate through clear service interfaces rather than
 | Consultations    | Handles booking, idempotency, consultation state transitions, and access control.              |
 | Prescriptions    | Supports prescription creation for eligible consultations and protected retrieval.             |
 | Payments         | Creates and retrieves pending payment records. External payment processing is not implemented. |
+| Admin analytics  | Aggregates platform consultations, doctor utilization, and payments without exposing PII.       |
 | Audit logging    | Records important business actions and associated metadata.                                    |
+| Observability    | Structured logging, request correlation IDs, health checks, and Prometheus metrics endpoint.   |
 | PostgreSQL       | Persists business data and enforces relational integrity and concurrency constraints.          |
 | Docker Compose   | Defines the local containerized API and database environment.                                  |
 | GitHub Actions   | Runs automated validation and build checks.                                                    |
 
 ### Current implementation boundary
 
-The implemented application includes the REST API, PostgreSQL persistence through Prisma, authentication and role-aware authorization, core consultation and related workflows, idempotency and database-level concurrency controls, structured logging, audit events, health endpoints, Docker configuration, and automated CI checks.
+The implemented application includes the REST API, PostgreSQL persistence through Prisma, authentication and role-aware authorization, core consultation and related workflows, administrator analytics, Prometheus runtime metrics (`/metrics`), idempotency and database-level concurrency controls, structured logging, audit events, health endpoints, Docker configuration, and automated CI checks.
 
-Redis, a background job queue, payment-gateway processing, production metrics exporters, dashboards, alerting infrastructure, and distributed tracing are not currently implemented. They are future extensions rather than dependencies of the current core workflows.
+Redis, a background job queue, payment-gateway processing, multi-service distributed tracing exporters, dashboards, and alerting infrastructure are not currently implemented. They are future extensions rather than dependencies of the current core workflows.
 
 ## 3. Core Workflows and Data Flow
 
@@ -498,17 +506,20 @@ Automated test success is necessary but does not, on its own, establish producti
 | Idempotency and database concurrency safeguards     | Implemented                                             |
 | Prescription workflow                               | Implemented                                             |
 | Pending payment records and concurrency protection  | Implemented                                             |
+| Admin analytics and utilization aggregations        | Implemented                                             |
+| Observability metrics endpoint (/metrics)           | Implemented (Prometheus & JSON formats)                 |
 | Structured logging and audit events                 | Implemented                                             |
 | Liveness and readiness endpoints                    | Implemented                                             |
+| Reproducible load-testing runner                    | Implemented (scripts/load-test.ts)                      |
 | Dockerfile and Docker Compose                       | Implemented and locally verified                        |
 | Automated CI and test suite                         | Implemented; hosted CI result should be confirmed       |
 | Redis caching                                       | Future work                                             |
 | Background job processing and outbox                | Future work                                             |
 | Payment-gateway integration and settlement          | Future work                                             |
-| Production metrics, dashboards, alerts, and tracing | Future work                                             |
+| Production dashboards, alerts, and tracing          | Future work                                             |
 | Database partitioning                               | Future work, subject to measurement                     |
 | Production backup, failover, and disaster recovery  | Requires deployment-level implementation and validation |
-| Load testing against performance targets            | Requires measurement and evidence                       |
+| Load testing against performance targets            | Benchmark runner available; production load validation |
 
 ### Recommended implementation priorities
 

@@ -86,32 +86,36 @@ Classification does not imply that every example is currently stored. The actual
 
 The current application includes the following controls:
 
-- JWT-based authentication.
-- Role-aware authorization and ownership checks in protected workflows.
-- Zod-based request validation.
-- Helmet security middleware.
-- CORS configuration.
-- Authentication rate limiting.
-- Bounded JSON request bodies.
-- Database-backed integrity and concurrency safeguards for important workflows.
-- Structured request/application logging and audit events.
-- Liveness and readiness health endpoints.
+- JWT-based authentication with strict issuer, audience, and algorithm enforcement.
+- Role-based access control (RBAC) supporting PATIENT, DOCTOR, and ADMIN roles.
+- Resource ownership checks in protected consultation, prescription, and payment workflows.
+- Administrator analytics isolation: returns aggregated statistics only, strictly preventing leakage of patient PII, diagnoses, or prescription notes.
+- Zod-based request schema and query parameter validation.
+- Helmet security headers and configured CORS restrictions.
+- Authentication rate limiting on login/register endpoints.
+- Bounded JSON request bodies (`100kb` limit).
+- Database-backed integrity and concurrency safeguards (exclusion constraints for slots, partial unique index for pending payments, and transactions).
+- Idempotency key replay protection for writes.
+- Structured request/application logging with secret redaction and request correlation IDs (`X-Request-Id`).
+- Prometheus-compatible runtime metrics (`/metrics`) with path normalization to prevent memory exhaustion from high-cardinality label explosion.
+- Liveness and database-connected readiness health endpoints.
 
 These statements describe the known application-level implementation. They do not establish that every endpoint, deployment environment, or threat scenario has been independently security-tested.
 
 ### 5.2 Verified development checks
 
-The following checks were reported as passing during development:
+The following checks were verified as passing:
 
-- TypeScript type checking.
-- Unit tests.
-- PostgreSQL-backed integration tests.
-- Production build.
-- Docker Compose configuration validation.
-- Local container startup and health checks.
-- GitHub Actions CI, reported as green.
+- TypeScript type checking (`npm run typecheck`).
+- Unit tests (`npm test`): 24 unit tests passed across 4 test suites.
+- PostgreSQL-backed integration tests (`npm run test:integration`): 52 integration tests passed across 8 test suites.
+- Production build (`npm run build`).
+- Standalone load-testing benchmark (`npm run test:load`).
+- Docker Compose configuration and container definitions.
+- Local API liveness and readiness health checks.
+- GitHub Actions CI workflow covering typecheck, migrations, tests, and build.
 
-The integration tests include concurrency scenarios involving booking retries, overlapping availability, and pending-payment creation.
+The integration tests include concurrency scenarios involving booking retries, overlapping availability, and pending-payment creation, as well as admin role enforcement and analytics aggregations.
 
 The hosted CI result should be confirmed in GitHub before submission. Passing general tests is not equivalent to a dedicated security audit, penetration test, dependency scan, or container image scan.
 
