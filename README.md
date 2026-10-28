@@ -73,11 +73,15 @@ SEED_DOCTOR_EMAIL=doctor_email
 SEED_DOCTOR_PASSWORD=doctor_password
 SEED_DOCTOR_NAME=doctor_name
 SEED_DOCTOR_SPECIALIZATION=doctor_specialization
+ 
+SEED_ADMIN_EMAIL=admin@example.com
+SEED_ADMIN_PASSWORD=admin_password
+SEED_ADMIN_NAME="Admin Name"
 
 TEST_DATABASE_URL="postgresql://YOUR_USERNAME:YOUR_PASSWORD@localhost:5432/amrutam_telemedicine_test?schema=public"
 ```
 
-Replace the placeholders with your local PostgreSQL credentials and appropriate development values. The seed variables are for configuring the development seed data.
+Replace the placeholders with your local PostgreSQL credentials and appropriate development values. The seed variables configure the initial doctor and administrator accounts used for local development and testing.
 
 Generate a strong JWT secret and never commit `.env` or real credentials to Git.
 
